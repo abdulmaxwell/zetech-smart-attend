@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useState, useEffect } from 'react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,26 +8,64 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Upload, Save, Send, AlertCircle, CheckCircle } from 'lucide-react';
+import { Upload, Save, Send, AlertCircle, CheckCircle, X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
+import { Class } from '@/types';
 
-const AbsenceForm = () => {
+interface AbsenceFormProps {
+  userId: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+const AbsenceForm = ({ userId, onClose, onSuccess }: AbsenceFormProps) => {
+  const [classes, setClasses] = useState<Class[]>([]);
   const [formData, setFormData] = useState({
     classId: '',
     reason: '',
     urgency: 'low' as 'low' | 'medium' | 'high',
     supportingDocs: [] as File[]
   });
-  const [isDraft, setIsDraft] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    fetchEnrolledClasses();
+  }, [userId]);
+
+  useEffect(() => {
+    setWordCount(formData.reason.trim().split(/\s+/).filter(word => word.length > 0).length);
+  }, [formData.reason]);
+
+  const fetchEnrolledClasses = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('student_classes')
+        .select(`
+          classes:class_id (
+            id,
+            name,
+            code,
+            department
+          )
+        `)
+        .eq('student_id', userId);
+
+      if (error) {
+        console.error('Error fetching classes:', error);
+        return;
+      }
+
+      const enrolledClasses = data?.map(item => item.classes).filter(Boolean) || [];
+      setClasses(enrolledClasses as Class[]);
+    } catch (error) {
+      console.error('Error fetching classes:', error);
+    }
+  };
+
   const handleReasonChange = (value: string) => {
     setFormData({ ...formData, reason: value });
-    setWordCount(value.trim().split(/\s+/).length);
-    
-    // Auto-save draft every 30 seconds
-    setIsDraft(true);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -37,31 +75,45 @@ const AbsenceForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-
+    
     if (wordCount < 300) {
       toast.error('Explanation must be at least 300 words');
-      setLoading(false);
       return;
     }
 
+    if (!formData.classId) {
+      toast.error('Please select a class');
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      toast.success('Absence explanation submitted successfully!');
-      setFormData({ classId: '', reason: '', urgency: 'low', supportingDocs: [] });
-      setWordCount(0);
+      const { error } = await supabase
+        .from('absence_requests')
+        .insert({
+          student_id: userId,
+          class_id: formData.classId,
+          reason: formData.reason,
+          urgency: formData.urgency
+        });
+
+      if (error) {
+        console.error('Error submitting absence request:', error);
+        toast.error('Error submitting request');
+        return;
+      }
+
+      toast.success('Absence explanation submitted successfully');
+      onSuccess();
     } catch (error) {
-      toast.error('Failed to submit explanation. Please try again.');
+      console.error('Error submitting absence request:', error);
+      toast.error('Error submitting request');
     } finally {
       setLoading(false);
     }
   };
 
-  const saveDraft = () => {
-    setIsDraft(false);
-    toast.success('Draft saved');
-  };
 
   const getUrgencyColor = (urgency: string) => {
     switch (urgency) {
@@ -73,30 +125,14 @@ const AbsenceForm = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <FileText className="w-6 h-6 mr-2" />
-            Submit Absence Explanation
-          </CardTitle>
-          <CardDescription>
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Submit Absence Explanation</DialogTitle>
+          <DialogDescription>
             Provide a detailed explanation for your absence. Minimum 300 words required.
-          </CardDescription>
-          {isDraft && (
-            <Alert>
-              <Save className="h-4 w-4" />
-              <AlertDescription>
-                You have unsaved changes. 
-                <Button variant="link" className="p-0 ml-1 h-auto" onClick={saveDraft}>
-                  Save draft
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
-        </CardHeader>
-
-        <CardContent>
+          </DialogDescription>
+        </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="class">Class</Label>
@@ -105,11 +141,11 @@ const AbsenceForm = () => {
                   <SelectValue placeholder="Select the class you missed" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cs101">Advanced Programming</SelectItem>
-                  <SelectItem value="cs102">Database Systems</SelectItem>
-                  <SelectItem value="cs103">Software Engineering</SelectItem>
-                  <SelectItem value="cs104">Data Structures</SelectItem>
-                  <SelectItem value="cs105">Web Development</SelectItem>
+                  {classes.map((cls) => (
+                    <SelectItem key={cls.id} value={cls.id}>
+                      {cls.name} ({cls.code})
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -201,34 +237,24 @@ const AbsenceForm = () => {
               )}
             </div>
 
-            <div className="flex justify-between pt-4">
-              <Button type="button" variant="outline" onClick={saveDraft}>
-                <Save className="w-4 h-4 mr-2" />
-                Save Draft
-              </Button>
-              
-              <Button 
-                type="submit" 
-                disabled={loading || wordCount < 300 || !formData.classId}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {loading ? (
-                  <>
-                    <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4 mr-2" />
-                    Submit Explanation
-                  </>
-                )}
-              </Button>
-            </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={loading || wordCount < 300 || !formData.classId}>
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              'Submit Explanation'
+            )}
+          </Button>
+        </DialogFooter>
           </form>
-        </CardContent>
-      </Card>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 

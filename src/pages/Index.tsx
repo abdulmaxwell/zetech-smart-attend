@@ -26,17 +26,7 @@ const Index = () => {
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          // Simulate fetching user profile
-          const mockUserProfile: UserType = {
-            id: session.user.id,
-            email: session.user.email || '',
-            role: 'student', // This would come from your database
-            first_name: 'John',
-            last_name: 'Doe',
-            admission_number: 'ADM/2024/001',
-            created_at: new Date().toISOString(),
-          };
-          setUserProfile(mockUserProfile);
+          fetchUserProfile(session.user.id);
         } else {
           setUserProfile(null);
         }
@@ -54,6 +44,29 @@ const Index = () => {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const fetchUserProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching user profile:', error);
+        toast.error('Error loading profile');
+        return;
+      }
+
+      if (data) {
+        setUserProfile(data);
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      toast.error('Error loading profile');
+    }
+  };
 
   const handleSignOut = async () => {
     try {

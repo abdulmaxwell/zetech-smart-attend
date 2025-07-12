@@ -1,26 +1,38 @@
 
 export interface User {
   id: string;
+  user_id: string;
   email: string;
   role: 'student' | 'lecturer' | 'admin';
-  admission_number?: string;
-  id_number?: string;
-  birth_cert_number?: string;
   first_name: string;
   last_name: string;
+  admission_number?: string;
+  id_number?: string;
+  birth_certificate_number?: string;
   parent_email?: string;
+  phone_number?: string;
+  department?: string;
+  year_of_study?: number;
   created_at: string;
-  last_login?: string;
+  updated_at: string;
 }
 
 export interface Class {
   id: string;
   name: string;
   code: string;
-  lecturer_id: string;
-  schedule: string;
-  location: string;
+  lecturer_id?: string;
+  department: string;
+  schedule?: {
+    day: string;
+    start: string;
+    end: string;
+    room: string;
+  };
+  semester: string;
+  academic_year: string;
   created_at: string;
+  updated_at: string;
 }
 
 export interface AttendanceLog {
@@ -31,7 +43,13 @@ export interface AttendanceLog {
   method: 'ble' | 'qr' | 'manual';
   beacon_uuid?: string;
   signal_strength?: number;
-  status: 'present' | 'late' | 'absent';
+  marked_by?: string;
+  notes?: string;
+  created_at: string;
+  classes?: {
+    name: string;
+    code: string;
+  };
 }
 
 export interface AbsenceRequest {
@@ -39,12 +57,16 @@ export interface AbsenceRequest {
   student_id: string;
   class_id: string;
   reason: string;
-  supporting_docs?: string[];
   urgency: 'low' | 'medium' | 'high';
   status: 'pending' | 'approved' | 'rejected';
-  admin_comment?: string;
+  supporting_documents?: string[];
+  reviewed_by?: string;
+  reviewed_at?: string;
+  admin_comments?: string;
   created_at: string;
   updated_at: string;
+  class?: Class;
+  student?: User;
 }
 
 export interface BLEBeacon {
@@ -52,19 +74,24 @@ export interface BLEBeacon {
   uuid: string;
   class_id: string;
   location: string;
+  description?: string;
   signal_threshold: number;
   is_active: boolean;
   created_at: string;
+  updated_at: string;
+  class?: Class;
 }
 
 export interface WeeklyReport {
   id: string;
   student_id: string;
-  week_number: number;
-  year: number;
+  week_start_date: string;
+  week_end_date: string;
+  total_classes: number;
+  attended_classes: number;
   attendance_percentage: number;
-  classes_attended: number;
-  classes_missed: number;
-  ai_insights: string;
+  ai_insights?: string;
+  content?: any;
+  email_sent_at?: string;
   created_at: string;
 }
