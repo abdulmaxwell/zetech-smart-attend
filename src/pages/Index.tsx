@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { User, Session } from '@supabase/supabase-js';
@@ -16,74 +15,74 @@ const Index = () => {
   const [userProfile, setUserProfile] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
-
-  useEffect(() => {
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        console.log('Auth state changed:', event, session);
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          fetchUserProfile(session.user.id);
-        } else {
-          setUserProfile(null);
-        }
-        
-        setLoading(false);
-      }
-    );
-
-    // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const fetchUserProfile = async (userId: string) => {
     try {
+      setLoading(true);
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('user_id', userId)
         .single();
 
-      if (error) {
-        console.error('Error fetching user profile:', error);
-        toast.error('Error loading profile');
-        return;
-      }
+      if (error) throw error;
 
-      if (data) {
-        setUserProfile(data);
-      }
+      setUserProfile(data);
+      toast.success('Welcome to ZETECH SmartAttend!');
     } catch (error) {
       console.error('Error fetching user profile:', error);
       toast.error('Error loading profile');
+    } finally {
+      setLoading(false);
     }
   };
+
+  useEffect(() => {
+    // First check for existing session
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      setUser(session?.user ?? null);
+      setAuthChecked(true);
+      
+      if (session?.user) {
+        await fetchUserProfile(session.user.id);
+      } else {
+        setLoading(false);
+      }
+    };
+
+    checkSession();
+
+    // Then set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state changed:', event);
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          await fetchUserProfile(session.user.id);
+        } else {
+          setUserProfile(null);
+          setLoading(false);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleSignOut = async () => {
     try {
       const { error } = await supabase.auth.signOut();
-      if (error) {
-        toast.error('Error signing out');
-      } else {
-        toast.success('Signed out successfully');
-      }
+      if (error) throw error;
+      toast.success('Signed out successfully');
     } catch (error) {
       console.error('Sign out error:', error);
       toast.error('Error signing out');
     }
-  };
-
-  const handleAuthSuccess = () => {
-    toast.success('Welcome to ZETECH SmartAttend!');
   };
 
   if (loading) {
@@ -97,8 +96,12 @@ const Index = () => {
     );
   }
 
+  if (!authChecked) {
+    return null; // or a loading spinner
+  }
+
   if (!user || !userProfile) {
-    return <AuthForm onAuthSuccess={handleAuthSuccess} />;
+    return <AuthForm />;
   }
 
   return (
