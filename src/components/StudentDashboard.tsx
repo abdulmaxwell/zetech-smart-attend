@@ -26,6 +26,8 @@ import {
 import { User as UserType, AttendanceLog, Class, AbsenceRequest } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { useBLEScanner } from '@/hooks/useBLEScanner';
 import AbsenceForm from './AbsenceForm';
 
 interface StudentDashboardProps {
@@ -43,9 +45,12 @@ const StudentDashboard = ({ user }: StudentDashboardProps) => {
   const [todayClasses, setTodayClasses] = useState<Class[]>([]);
   const [nextClass, setNextClass] = useState<Class | null>(null);
   const [absenceRequests, setAbsenceRequests] = useState<AbsenceRequest[]>([]);
-  const [bleStatus, setBleStatus] = useState({ connected: true, scanning: false });
   const [showAbsenceForm, setShowAbsenceForm] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // Mobile and PWA hooks
+  const isOnline = useOnlineStatus();
+  const { isScanning, isSupported, nearbyBeacons, startScanning, stopScanning } = useBLEScanner();
 
   useEffect(() => {
     fetchDashboardData();
@@ -203,10 +208,6 @@ const StudentDashboard = ({ user }: StudentDashboardProps) => {
     setAbsenceRequests(data || []);
   };
 
-  const handleBLEToggle = () => {
-    setBleStatus(prev => ({ ...prev, connected: !prev.connected }));
-    toast.success(bleStatus.connected ? 'BLE disconnected' : 'BLE connected');
-  };
 
   const handleMarkAttendance = async (classId: string) => {
     try {
@@ -306,6 +307,16 @@ const StudentDashboard = ({ user }: StudentDashboardProps) => {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Offline notification */}
+        {!isOnline && (
+          <Alert className="mb-6 border-red-200 bg-red-50">
+            <WifiOff className="h-4 w-4 text-red-600" />
+            <AlertDescription className="text-red-800">
+              You're currently offline. Some features may not work properly. Data will sync when reconnected.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Alert for low attendance */}
         {attendanceStats.percentage < 75 && (
           <Alert className="mb-6 border-orange-200 bg-orange-50">
@@ -359,29 +370,50 @@ const StudentDashboard = ({ user }: StudentDashboardProps) => {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">BLE Status</CardTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleBLEToggle}
-                className="h-auto p-0"
-              >
-                {bleStatus.connected ? (
-                  <Bluetooth className="h-4 w-4 text-blue-600" />
-                ) : (
-                  <WifiOff className="h-4 w-4 text-gray-400" />
-                )}
-              </Button>
+              <div className="flex items-center space-x-2">
+                {!isOnline && <WifiOff className="h-4 w-4 text-red-500" />}
+                {isOnline && <Wifi className="h-4 w-4 text-green-500" />}
+                <Bluetooth className={`h-4 w-4 ${nearbyBeacons.length > 0 ? 'text-blue-600' : 'text-gray-400'}`} />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center">
-                <div className={`w-2 h-2 rounded-full mr-2 ${bleStatus.connected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                <span className="text-sm font-medium">
-                  {bleStatus.connected ? 'Connected' : 'Disconnected'}
-                </span>
+              <div className="space-y-3">
+                <div className="flex items-center">
+                  <div className={`w-2 h-2 rounded-full mr-2 ${
+                    !isSupported ? 'bg-gray-500' :
+                    isScanning ? 'bg-yellow-500' :
+                    nearbyBeacons.length > 0 ? 'bg-green-500' : 'bg-red-500'
+                  }`}></div>
+                  <span className="text-sm font-medium">
+                    {!isSupported ? 'Not Supported' :
+                     isScanning ? 'Scanning...' :
+                     nearbyBeacons.length > 0 ? 'Connected' : 'Disconnected'}
+                  </span>
+                </div>
+                
+                {nearbyBeacons.length > 0 && (
+                  <div className="text-xs text-muted-foreground">
+                    Signal: {nearbyBeacons[0].rssi}dBm • ~{nearbyBeacons[0].distance}m
+                  </div>
+                )}
+                
+                <div className="flex space-x-2">
+                  {isSupported && !isScanning && nearbyBeacons.length === 0 && (
+                    <Button size="sm" onClick={startScanning} className="text-xs">
+                      Start Scan
+                    </Button>
+                  )}
+                  {isScanning && (
+                    <Button size="sm" variant="outline" onClick={stopScanning} className="text-xs">
+                      Stop
+                    </Button>
+                  )}
+                </div>
+                
+                <p className="text-xs text-muted-foreground">
+                  {nearbyBeacons.length > 0 ? 'Auto-attendance enabled' : 'Manual check-in required'}
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                {bleStatus.connected ? 'Auto-attendance enabled' : 'Manual check-in required'}
-              </p>
             </CardContent>
           </Card>
 

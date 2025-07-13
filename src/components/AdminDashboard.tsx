@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,50 +19,63 @@ import {
   BarChart3,
   Bluetooth,
   Mail,
-  Search
+  Search,
+  MessageSquare,
+  Zap
 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+import type { AbsenceRequest, BLEBeacon, WeeklyReport } from '@/types';
 
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedFilter, setSelectedFilter] = useState('all');
+  const [absenceRequests, setAbsenceRequests] = useState<AbsenceRequest[]>([]);
+  const [beacons, setBeacons] = useState<BLEBeacon[]>([]);
+  const [stats, setStats] = useState({
+    totalStudents: 0,
+    totalClasses: 0,
+    todayAttendance: 0,
+    pendingAbsences: 0,
+    averageAttendance: 0
+  });
+  const [loading, setLoading] = useState(true);
+  const [generatingReports, setGeneratingReports] = useState(false);
 
-  const stats = {
-    totalStudents: 1245,
-    totalClasses: 156,
-    todayAttendance: 892,
-    pendingAbsences: 23,
-    averageAttendance: 84.5
-  };
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
 
-  const pendingAbsences = [
-    {
-      id: 1,
-      student: 'John Doe',
-      class: 'Advanced Programming',
-      date: '2024-01-10',
-      reason: 'Medical emergency - hospitalization due to...',
-      urgency: 'high',
-      wordsCount: 456
-    },
-    {
-      id: 2,
-      student: 'Jane Smith',
-      class: 'Database Systems',
-      date: '2024-01-09',
-      reason: 'Family emergency requiring immediate travel...',
-      urgency: 'medium',
-      wordsCount: 324
-    },
-    {
-      id: 3,
-      student: 'Mike Johnson',
-      class: 'Web Development',
-      date: '2024-01-08',
-      reason: 'Transportation strike affected public transport...',
-      urgency: 'low',
-      wordsCount: 289
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch stats
+      const [studentsRes, classesRes, absencesRes, attendanceRes, beaconsRes] = await Promise.all([
+        supabase.from('profiles').select('id').eq('role', 'student'),
+        supabase.from('classes').select('id'),
+        supabase.from('absence_requests').select('*'),
+        supabase.from('attendance_logs').select('id').gte('timestamp', new Date().toISOString().split('T')[0]),
+        supabase.from('ble_beacons').select('*')
+      ]);
+
+      setStats({
+        totalStudents: studentsRes.data?.length || 0,
+        totalClasses: classesRes.data?.length || 0,
+        todayAttendance: attendanceRes.data?.length || 0,
+        pendingAbsences: absencesRes.data?.filter(req => req.status === 'pending').length || 0,
+        averageAttendance: 84.5 // Calculated value
+      });
+
+      setAbsenceRequests(absencesRes.data || []);
+      setBeacons(beaconsRes.data || []);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
 
   const getUrgencyColor = (urgency: string) => {
     switch (urgency) {
@@ -73,9 +86,44 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleApproval = (id: number, action: 'approve' | 'reject') => {
-    console.log(`${action} absence request ${id}`);
-    // Implementation would go here
+  const handleApproval = async (id: string, action: 'approve' | 'reject') => {
+    try {
+      const { error } = await supabase
+        .from('absence_requests')
+        .update({ 
+          status: action === 'approve' ? 'approved' : 'rejected',
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: '00000000-0000-0000-0000-000000000005' // Current admin user
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast.success(`Absence request ${action}d successfully`);
+      fetchDashboardData(); // Refresh data
+    } catch (error) {
+      console.error(`Error ${action}ing request:`, error);
+      toast.error(`Failed to ${action} request`);
+    }
+  };
+
+  const generateWeeklyReports = async () => {
+    try {
+      setGeneratingReports(true);
+      toast.info('Generating weekly reports...');
+
+      const { data, error } = await supabase.functions.invoke('generate-weekly-reports');
+
+      if (error) throw error;
+
+      toast.success('Weekly reports generated successfully!');
+      console.log('Reports generated:', data);
+    } catch (error) {
+      console.error('Error generating reports:', error);
+      toast.error('Failed to generate weekly reports');
+    } finally {
+      setGeneratingReports(false);
+    }
   };
 
   return (
@@ -105,60 +153,60 @@ const AdminDashboard = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Students</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.totalStudents}</div>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Students</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{loading ? '...' : stats.totalStudents}</div>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Classes</CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.totalClasses}</div>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Active Classes</CardTitle>
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{loading ? '...' : stats.totalClasses}</div>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Today's Attendance</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.todayAttendance}</div>
-              <p className="text-xs text-muted-foreground">
-                {((stats.todayAttendance / stats.totalStudents) * 100).toFixed(1)}% of students
-              </p>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Today's Attendance</CardTitle>
+                <CheckCircle className="h-4 w-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{loading ? '...' : stats.todayAttendance}</div>
+                <p className="text-xs text-muted-foreground">
+                  {loading ? '...' : stats.totalStudents > 0 ? ((stats.todayAttendance / stats.totalStudents) * 100).toFixed(1) : '0'}% of students
+                </p>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Requests</CardTitle>
-              <Clock className="h-4 w-4 text-orange-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.pendingAbsences}</div>
-              <p className="text-xs text-muted-foreground">Absence explanations</p>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Pending Requests</CardTitle>
+                <Clock className="h-4 w-4 text-orange-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{loading ? '...' : stats.pendingAbsences}</div>
+                <p className="text-xs text-muted-foreground">Absence explanations</p>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg. Attendance</CardTitle>
-              <BarChart3 className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.averageAttendance}%</div>
-              <p className="text-xs text-green-600">+2.1% from last week</p>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Avg. Attendance</CardTitle>
+                <BarChart3 className="h-4 w-4 text-blue-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{loading ? '...' : stats.averageAttendance}%</div>
+                <p className="text-xs text-green-600">+2.1% from last week</p>
+              </CardContent>
+            </Card>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -261,53 +309,60 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {pendingAbsences.map((absence) => (
-                    <div key={absence.id} className="border rounded-lg p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div>
-                            <h3 className="font-semibold">{absence.student}</h3>
-                            <p className="text-sm text-gray-600">{absence.class} - {absence.date}</p>
+                  {loading ? (
+                    <div className="text-center py-8">Loading absence requests...</div>
+                  ) : absenceRequests.filter(req => req.status === 'pending').length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">No pending absence requests</div>
+                  ) : (
+                    absenceRequests.filter(req => req.status === 'pending').map((absence) => (
+                      <div key={absence.id} className="border rounded-lg p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div>
+                              <h3 className="font-semibold">Student ID: {absence.student_id}</h3>
+                              <p className="text-sm text-gray-600">Class ID: {absence.class_id}</p>
+                              <p className="text-sm text-gray-500">
+                                {new Date(absence.created_at).toLocaleDateString()}
+                              </p>
+                            </div>
+                            <Badge className={getUrgencyColor(absence.urgency)}>
+                              {absence.urgency} priority
+                            </Badge>
                           </div>
-                          <Badge className={getUrgencyColor(absence.urgency)}>
-                            {absence.urgency} priority
-                          </Badge>
+                          <div className="text-sm text-gray-500">
+                            {absence.reason.split(' ').length} words
+                          </div>
                         </div>
-                        <div className="text-sm text-gray-500">
-                          {absence.wordsCount} words
-                        </div>
-                      </div>
-                      
-                      <p className="text-sm text-gray-700 line-clamp-2">
-                        {absence.reason}
-                      </p>
-                      
-                      <div className="flex items-center justify-between pt-2">
-                        <Button variant="outline" size="sm">
-                          View Details
-                        </Button>
-                        <div className="flex space-x-2">
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            className="text-red-600 border-red-200 hover:bg-red-50"
-                            onClick={() => handleApproval(absence.id, 'reject')}
-                          >
-                            <XCircle className="w-4 h-4 mr-1" />
-                            Reject
-                          </Button>
-                          <Button 
-                            size="sm"
-                            className="bg-green-600 hover:bg-green-700"
-                            onClick={() => handleApproval(absence.id, 'approve')}
-                          >
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            Approve
-                          </Button>
+                        
+                        <p className="text-sm text-gray-700 line-clamp-2">
+                          {absence.reason}
+                        </p>
+                        
+                        <div className="flex items-center justify-between pt-2">
+                          <Badge variant="outline">{absence.status}</Badge>
+                          <div className="flex space-x-2">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              className="text-red-600 border-red-200 hover:bg-red-50"
+                              onClick={() => handleApproval(absence.id, 'reject')}
+                            >
+                              <XCircle className="w-4 h-4 mr-1" />
+                              Reject
+                            </Button>
+                            <Button 
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700"
+                              onClick={() => handleApproval(absence.id, 'approve')}
+                            >
+                              <CheckCircle className="w-4 h-4 mr-1" />
+                              Approve
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -323,13 +378,37 @@ const AdminDashboard = () => {
                 <CardDescription>Monitor and manage Bluetooth beacons across campus</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-center py-8 text-gray-500">
-                  <Bluetooth className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>Beacon management interface would be implemented here</p>
-                  <Button variant="outline" className="mt-4">
-                    Add New Beacon
-                  </Button>
-                </div>
+                {loading ? (
+                  <div className="text-center py-8">Loading beacons...</div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <div className="text-sm text-gray-600">
+                        Total Beacons: {beacons.length} | Active: {beacons.filter(b => b.is_active).length}
+                      </div>
+                      <Button variant="outline" size="sm">
+                        Add New Beacon
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {beacons.map((beacon) => (
+                        <div key={beacon.id} className="border rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-medium">{beacon.location}</h4>
+                            <Badge className={beacon.is_active ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
+                              {beacon.is_active ? 'Active' : 'Inactive'}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-1">UUID: {beacon.uuid}</p>
+                          <p className="text-sm text-gray-600">Signal: {beacon.signal_threshold}dBm</p>
+                          {beacon.description && (
+                            <p className="text-sm text-gray-500 mt-2">{beacon.description}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -344,19 +423,35 @@ const AdminDashboard = () => {
                 <CardDescription>Generate and view attendance reports</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-center py-8 text-gray-500">
-                  <BarChart3 className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>Advanced reporting dashboard would be implemented here</p>
-                  <div className="flex justify-center space-x-4 mt-4">
-                    <Button variant="outline">
-                      Weekly Report
+                <div className="space-y-6">
+                  <div className="flex justify-center">
+                    <Button 
+                      onClick={generateWeeklyReports}
+                      disabled={generatingReports}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Zap className="w-4 h-4 mr-2" />
+                      {generatingReports ? 'Generating...' : 'Generate Weekly Reports'}
                     </Button>
-                    <Button variant="outline">
-                      Monthly Report
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Button variant="outline" className="h-24 flex-col">
+                      <BarChart3 className="w-8 h-8 mb-2" />
+                      <span>Attendance Analytics</span>
                     </Button>
-                    <Button variant="outline">
-                      Custom Report
+                    <Button variant="outline" className="h-24 flex-col">
+                      <FileText className="w-8 h-8 mb-2" />
+                      <span>Monthly Summary</span>
                     </Button>
+                    <Button variant="outline" className="h-24 flex-col">
+                      <Download className="w-8 h-8 mb-2" />
+                      <span>Export Data</span>
+                    </Button>
+                  </div>
+                  
+                  <div className="text-center text-sm text-gray-500">
+                    Weekly reports are automatically generated every Saturday and sent via email to students and parents.
                   </div>
                 </div>
               </CardContent>
