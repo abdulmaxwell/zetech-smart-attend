@@ -116,7 +116,7 @@ const Index = () => {
               </div>
               <div>
                 <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  ZETECH SmartAttend
+                  ZETECH UNIVERSITY CLASS ATTEND 
                 </h1>
               </div>
             </div>
